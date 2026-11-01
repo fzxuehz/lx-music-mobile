@@ -1,4 +1,4 @@
-import { initSetting, showPactModal } from '@/core/common'
+import { initSetting, showPactModal, updateSetting } from '@/core/common'
 import registerPlaybackService from '@/plugins/player/service'
 import initTheme from './theme'
 import initI18n from './i18n'
@@ -47,6 +47,16 @@ export default async() => {
 
   await initUserApi(setting)
   bootLog('User Api inited.')
+
+  // ==== 薛鸿忠音乐：未选择音源时默认激活内置源 ====
+  if (!setting['common.apiSource']) {
+    const builtinApiId = (global.lx as any).builtinDefaultApiId as string | undefined
+    if (builtinApiId) {
+      setting['common.apiSource'] = builtinApiId
+      void updateSetting({ 'common.apiSource': builtinApiId })
+    }
+  }
+  // ==== 薛鸿忠音乐 end ====
 
   setApiSource(setting['common.apiSource'])
   bootLog('Api inited.')
