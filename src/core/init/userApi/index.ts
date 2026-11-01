@@ -1,12 +1,12 @@
 import { type InitParams, onScriptAction, sendAction, type ResponseParams, type UpdateInfoParams, type RequestParams } from '@/utils/nativeModules/userApi'
-import { log, setUserApiList, setUserApiStatus, importUserApi } from '@/core/userApi'
+import { log, setUserApiList, setUserApiStatus, importUserApi, removeUserApi } from '@/core/userApi'
 import { updateSetting } from '@/core/common'
 import settingState from '@/store/setting/state'
 import BackgroundTimer from 'react-native-background-timer'
 import { fetchData } from './request'
 import { getUserApiList } from '@/utils/data'
 import { confirmDialog, openUrl, tipDialog } from '@/utils/tools'
-import { BUILTIN_SOURCES, BUILTIN_SOURCE_DEFAULT_KEY } from '@/config/builtinSources'
+import { BUILTIN_SOURCES, BUILTIN_SOURCE_DEFAULT_KEY, BUILTIN_LEGACY_SOURCE_NAMES } from '@/config/builtinSources'
 
 
 export default async(setting: LX.AppSetting) => {
@@ -266,8 +266,22 @@ export default async(setting: LX.AppSetting) => {
       const name = line.replace(/^\s?\*\s?@name\s/, '').trim()
       return name.length > 24 ? name.substring(0, 24) + '...' : name
     }
+    // 1. 清理旧版内置、经实测不可用的失效源（防止升级后残留导致误选坏源）
     const currentList = await getUserApiList()
-    const existingNames = new Set(currentList.map(info => info.name))
+    const legacyIds = currentList
+      .filter(info => BUILTIN_LEGACY_SOURCE_NAMES.some(n => info.name === n))
+      .map(info => info.id)
+    if (legacyIds.length) {
+      try {
+        await removeUserApi(legacyIds)
+        console.log('[XHZ] removed legacy sources:', legacyIds.length)
+      } catch (err) {
+        console.log('[XHZ] remove legacy failed:', err)
+      }
+    }
+    // 2. 导入内置源（按脚本名去重）
+    const dedupList = await getUserApiList()
+    const existingNames = new Set(dedupList.map(info => info.name))
     for (const src of BUILTIN_SOURCES) {
       const scriptName = parseScriptName(src.script)
       if (scriptName && existingNames.has(scriptName)) continue
@@ -278,9 +292,11 @@ export default async(setting: LX.AppSetting) => {
         console.log('[XHZ] builtin source import failed:', src.key, err)
       }
     }
+    // 3. 激活处理：未选音源、或当前指向的源已不存在（被清理）→ 激活内置主源
     const list = await getUserApiList()
-    // 默认激活内置主源（仅当用户从未选择过音源时）
-    if (!setting['common.apiSource']) {
+    const currentApiId = setting['common.apiSource']
+    const apiStillExists = currentApiId ? list.some(info => info.id === currentApiId) : false
+    if (!apiStillExists) {
       const defaultSource = BUILTIN_SOURCES.find(s => s.key === BUILTIN_SOURCE_DEFAULT_KEY)
       const defaultScriptName = defaultSource ? parseScriptName(defaultSource.script) : null
       const defaultApi = defaultScriptName ? list.find(info => info.name === defaultScriptName) : undefined
