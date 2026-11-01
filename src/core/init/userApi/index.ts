@@ -1,5 +1,6 @@
 import { type InitParams, onScriptAction, sendAction, type ResponseParams, type UpdateInfoParams, type RequestParams } from '@/utils/nativeModules/userApi'
-import { log, setUserApiList, setUserApiStatus, addUserApi } from '@/core/userApi'
+import { log, setUserApiList, setUserApiStatus, importUserApi } from '@/core/userApi'
+import { updateSetting } from '@/core/common'
 import settingState from '@/store/setting/state'
 import BackgroundTimer from 'react-native-background-timer'
 import { fetchData } from './request'
@@ -253,25 +254,46 @@ export default async(setting: LX.AppSetting) => {
     }
   })
 
-  // ==== 薛鸿忠音乐：内置音源自动导入 ====
-  const currentList = await getUserApiList()
-  const existingNames = new Set(currentList.map(info => info.name))
-  let defaultBuiltinId = ''
-  for (const src of BUILTIN_SOURCES) {
-    if (existingNames.has(src.name)) continue
-    try {
-      const info = await addUserApi(src.script)
-      if (src.key === BUILTIN_SOURCE_DEFAULT_KEY) defaultBuiltinId = info.id
-    } catch (err) {
-      console.log('builtin source import failed:', src.key, err)
+  // ==== 薛鸿忠音乐：内置音源自动导入与默认激活 ====
+  try {
+    console.log('[XHZ] builtin sources bootstrap begin')
+    // 从脚本头部注释解析 @name（与官方解析规则一致，用于去重防重复导入）
+    const parseScriptName = (script: string) => {
+      const block = /^\/\*[\S\s]+?\*\//.exec(script)
+      if (!block) return null
+      const line = block[0].split(/\r?\n/).find(l => /^\s?\*\s?@name\s/.test(l))
+      if (!line) return null
+      const name = line.replace(/^\s?\*\s?@name\s/, '').trim()
+      return name.length > 24 ? name.substring(0, 24) + '...' : name
     }
+    const currentList = await getUserApiList()
+    const existingNames = new Set(currentList.map(info => info.name))
+    for (const src of BUILTIN_SOURCES) {
+      const scriptName = parseScriptName(src.script)
+      if (scriptName && existingNames.has(scriptName)) continue
+      try {
+        await importUserApi(src.script)
+        console.log('[XHZ] builtin source imported:', src.key)
+      } catch (err) {
+        console.log('[XHZ] builtin source import failed:', src.key, err)
+      }
+    }
+    const list = await getUserApiList()
+    // 默认激活内置主源（仅当用户从未选择过音源时）
+    if (!setting['common.apiSource']) {
+      const defaultSource = BUILTIN_SOURCES.find(s => s.key === BUILTIN_SOURCE_DEFAULT_KEY)
+      const defaultScriptName = defaultSource ? parseScriptName(defaultSource.script) : null
+      const defaultApi = defaultScriptName ? list.find(info => info.name === defaultScriptName) : undefined
+      if (defaultApi) {
+        setting['common.apiSource'] = defaultApi.id
+        void updateSetting({ 'common.apiSource': defaultApi.id })
+        console.log('[XHZ] activate default api:', defaultApi.id)
+      }
+    }
+    console.log('[XHZ] builtin sources bootstrap end')
+  } catch (err) {
+    console.log('[XHZ] builtin sources bootstrap failed:', err)
   }
-  if (!defaultBuiltinId) {
-    const defaultName = BUILTIN_SOURCES.find(s => s.key === BUILTIN_SOURCE_DEFAULT_KEY)?.name
-    const found = (await getUserApiList()).find(info => info.name === defaultName)
-    if (found) defaultBuiltinId = found.id
-  }
-  ;(global.lx as any).builtinDefaultApiId = defaultBuiltinId || undefined
   // ==== 薛鸿忠音乐 end ====
 
   setUserApiList(await getUserApiList())
