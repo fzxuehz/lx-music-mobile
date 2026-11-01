@@ -14,6 +14,18 @@ jobs:
       - name: Setup Env
         uses: ./.github/actions/setup
 
+      - name: Sanity check custom imports
+        shell: bash
+        run: |
+          if grep -q 'addUserApi' src/core/init/userApi/index.ts; then
+            echo 'BAD: addUserApi is still referenced (not exported by core/userApi)'
+            exit 1
+          fi
+          grep -q 'importUserApi' src/core/init/userApi/index.ts || { echo 'BAD: importUserApi missing'; exit 1; }
+          grep -q 'updateSetting' src/core/init/userApi/index.ts || { echo 'BAD: updateSetting missing'; exit 1; }
+          test -f src/config/builtinSources.ts || { echo 'BAD: builtinSources.ts missing'; exit 1; }
+          echo 'sanity check passed'
+
       - name: Build Packages
         env:
           DISABLE_SVG: 1
