@@ -1,10 +1,11 @@
 import { type InitParams, onScriptAction, sendAction, type ResponseParams, type UpdateInfoParams, type RequestParams } from '@/utils/nativeModules/userApi'
-import { log, setUserApiList, setUserApiStatus } from '@/core/userApi'
+import { log, setUserApiList, setUserApiStatus, addUserApi } from '@/core/userApi'
 import settingState from '@/store/setting/state'
 import BackgroundTimer from 'react-native-background-timer'
 import { fetchData } from './request'
 import { getUserApiList } from '@/utils/data'
 import { confirmDialog, openUrl, tipDialog } from '@/utils/tools'
+import { BUILTIN_SOURCES, BUILTIN_SOURCE_DEFAULT_KEY } from '@/config/builtinSources'
 
 
 export default async(setting: LX.AppSetting) => {
@@ -251,6 +252,27 @@ export default async(setting: LX.AppSetting) => {
         break
     }
   })
+
+  // ==== 薛鸿忠音乐：内置音源自动导入 ====
+  const currentList = await getUserApiList()
+  const existingNames = new Set(currentList.map(info => info.name))
+  let defaultBuiltinId = ''
+  for (const src of BUILTIN_SOURCES) {
+    if (existingNames.has(src.name)) continue
+    try {
+      const info = await addUserApi(src.script)
+      if (src.key === BUILTIN_SOURCE_DEFAULT_KEY) defaultBuiltinId = info.id
+    } catch (err) {
+      console.log('builtin source import failed:', src.key, err)
+    }
+  }
+  if (!defaultBuiltinId) {
+    const defaultName = BUILTIN_SOURCES.find(s => s.key === BUILTIN_SOURCE_DEFAULT_KEY)?.name
+    const found = (await getUserApiList()).find(info => info.name === defaultName)
+    if (found) defaultBuiltinId = found.id
+  }
+  ;(global.lx as any).builtinDefaultApiId = defaultBuiltinId || undefined
+  // ==== 薛鸿忠音乐 end ====
 
   setUserApiList(await getUserApiList())
 }
