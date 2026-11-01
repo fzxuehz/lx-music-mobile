@@ -1,0 +1,41 @@
+name: Build Custom
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out git repository
+        uses: actions/checkout@v4
+
+      - name: Setup Env
+        uses: ./.github/actions/setup
+
+      - name: Build Packages
+        env:
+          DISABLE_SVG: 1
+        shell: bash
+        run: |
+          cd android
+          cp ../.build-store/lxmusic.jks ./app/lxmusic.jks
+          ./gradlew assembleRelease \
+            -PMYAPP_UPLOAD_STORE_FILE=lxmusic.jks \
+            -PMYAPP_UPLOAD_KEY_ALIAS=lxmusic \
+            -PMYAPP_UPLOAD_STORE_PASSWORD=XhzMusic2026 \
+            -PMYAPP_UPLOAD_KEY_PASSWORD=XhzMusic2026
+
+      - name: Collect APKs
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/release/*.apk artifacts/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xhz-music-apks
+          path: artifacts/*.apk
+          if-no-files-found: error
